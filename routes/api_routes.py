@@ -475,3 +475,64 @@ class DashboardStats(Resource):
             "active_sprint_capacity": active_sprint.capacity if active_sprint else 0,
             "velocity": velocity,
         }
+    
+burndown_ns = api.namespace("burndown", description="Burndown chart data")
+
+@burndown_ns.route("/sprints/<int:sprint_id>/burndown")
+class SprintBurndown(Resource):
+    @jwt_required()
+    def get(self, sprint_id):
+        """Get burndown chart data for a sprint"""
+        from models import Sprint as SprintModel, EffortLog
+        import datetime
+
+        sprint = SprintModel.query.get_or_404(sprint_id)
+        pbis = PBI.query.filter_by(sprint_id=sprint_id).all()
+        tasks = []
+        for pbi in pbis:
+            tasks.extend(Task.query.filter_by(pbi_id=pbi.id).all())
+
+        total_effort = sum(t.estimated_effort or 0 for t in tasks)
+        start_date = sprint.created_at.date()
+        today = datetime.date.today()
+        sprint_days = 14
+        days = []
+        ideal = []
+        actual = []
+
+        for i in range(sprint_days):
+            day = start_date + datetime.timedelta(days=i)
+            if day > today:
+                break
+            days.append(day.strftime("Day %d" % (i + 1)))
+            ideal.append(round(total_effort * (1 - i / (sprint_days - 1)), 2))
+            logged_so_far = db.session.query(
+                db.func.coalesce(db.func.sum(EffortLog.hours_spent), 0)
+            ).join(Task).filter(
+                Task.id.in_([t.id for t in tasks]),
+                EffortLog.date <= day
+            ).scalar()
+            actual.append(round(max(total_effort - float(logged_so_far), 0), 2))
+
+        return {"days": days, "ideal": ideal, "actual": actual}
+
+
+velocity_ns = api.namespace("velocity", description="Sprint velocity")
+
+@velocity_ns.route("/sprints/velocity")
+class SprintVelocity(Resource):
+    @jwt_required()
+    def get(self):
+        """Get velocity for all completed sprints"""
+        from models import Sprint as SprintModel
+        sprints = SprintModel.query.filter_by(status="Complete").order_by(SprintModel.id).all()
+        result = []
+        for sprint in sprints:
+            done_pbis = PBI.query.filter_by(sprint_id=sprint.id, status="Complete").all()
+            effort = sum(p.effort or 0 for p in done_pbis)
+            result.append({
+                "sprint_id": sprint.id,
+                "sprint_label": f"Sprint #{sprint.id}",
+                "effort_completed": effort
+            })
+        return result

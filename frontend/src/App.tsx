@@ -5,6 +5,7 @@ import Backlog from './pages/Backlog'
 import SprintPage from './pages/Sprint'
 import TasksPage from './pages/Tasks'
 import Dashboard from './pages/Dashboard'
+import ReportsPage from './pages/Reports'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/backlog" element={<Backlog />} />
           <Route path="/sprint" element={<SprintPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </BrowserRouter>
