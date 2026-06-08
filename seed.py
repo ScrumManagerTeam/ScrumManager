@@ -73,13 +73,15 @@ def seed():
         db.session.add_all(tasks)
         db.session.commit()
 
-        # Log some effort
+        # Log some effort — dates relative to today so burndown chart works
+        from datetime import date, timedelta
+        today = date.today()
         logs = [
-            EffortLog(task_id=tasks[0].id, date=date(2026, 4, 1), hours_spent=2.0),
-            EffortLog(task_id=tasks[1].id, date=date(2026, 4, 2), hours_spent=3.0),
-            EffortLog(task_id=tasks[2].id, date=date(2026, 4, 3), hours_spent=4.0),
-            EffortLog(task_id=tasks[3].id, date=date(2026, 4, 4), hours_spent=2.0),
-            EffortLog(task_id=tasks[5].id, date=date(2026, 4, 10), hours_spent=1.5),
+            EffortLog(task_id=tasks[0].id, date=today - timedelta(days=6), hours_spent=2.0),
+            EffortLog(task_id=tasks[1].id, date=today - timedelta(days=5), hours_spent=3.0),
+            EffortLog(task_id=tasks[2].id, date=today - timedelta(days=4), hours_spent=4.0),
+            EffortLog(task_id=tasks[3].id, date=today - timedelta(days=3), hours_spent=2.0),
+            EffortLog(task_id=tasks[5].id, date=today - timedelta(days=1), hours_spent=1.5),
         ]
         db.session.add_all(logs)
         db.session.commit()
