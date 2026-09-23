@@ -475,3 +475,65 @@ class DashboardStats(Resource):
             "active_sprint_capacity": active_sprint.capacity if active_sprint else 0,
             "velocity": velocity,
         }
+    
+burndown_ns = api.namespace("burndown", description="Burndown chart data")
+
+@burndown_ns.route("/sprints/<int:sprint_id>/burndown")
+class SprintBurndown(Resource):
+    @jwt_required()
+    def get(self, sprint_id):
+        """Get burndown chart data for a sprint"""
+        from models import Sprint as SprintModel, EffortLog
+        import datetime
+
+        sprint = SprintModel.query.get_or_404(sprint_id)
+        pbis = PBI.query.filter_by(sprint_id=sprint_id).all()
+        task_ids = [t.id for pbi in pbis for t in pbi.tasks]
+
+        # Sprint scope is the PBI effort, the same basis as capacity and velocity
+        total_effort = sum(p.effort or 0 for p in pbis)
+        start_date = sprint.created_at.date()
+        today = datetime.date.today()
+        sprint_days = 14
+        days = []
+        ideal = []
+        actual = []
+
+        for i in range(sprint_days):
+            day = start_date + datetime.timedelta(days=i)
+            if day > today:
+                break
+            days.append(f"Day {i + 1}")
+            ideal.append(round(total_effort * (1 - i / (sprint_days - 1)), 2))
+            # Only effort logged inside the sprint window burns down its scope
+            logged_so_far = db.session.query(
+                db.func.coalesce(db.func.sum(EffortLog.hours_spent), 0)
+            ).filter(
+                EffortLog.task_id.in_(task_ids),
+                EffortLog.date >= start_date,
+                EffortLog.date <= day
+            ).scalar()
+            actual.append(round(max(total_effort - float(logged_so_far), 0), 2))
+
+        return {"days": days, "ideal": ideal, "actual": actual}
+
+
+velocity_ns = api.namespace("velocity", description="Sprint velocity")
+
+@velocity_ns.route("/sprints/velocity")
+class SprintVelocity(Resource):
+    @jwt_required()
+    def get(self):
+        """Get velocity for all completed sprints"""
+        from models import Sprint as SprintModel
+        sprints = SprintModel.query.filter_by(status="Complete").order_by(SprintModel.id).all()
+        result = []
+        for sprint in sprints:
+            done_pbis = PBI.query.filter_by(sprint_id=sprint.id, status="Complete").all()
+            effort = sum(p.effort or 0 for p in done_pbis)
+            result.append({
+                "sprint_id": sprint.id,
+                "sprint_label": f"Sprint #{sprint.id}",
+                "effort_completed": effort
+            })
+        return result

@@ -41,7 +41,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const initials = state.username
     ? state.username.slice(0, 2).toUpperCase()
-    : 'AT'
+    : '?'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#0d0f14', fontFamily: 'Inter, system-ui, sans-serif' }}>
