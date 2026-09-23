@@ -488,11 +488,10 @@ class SprintBurndown(Resource):
 
         sprint = SprintModel.query.get_or_404(sprint_id)
         pbis = PBI.query.filter_by(sprint_id=sprint_id).all()
-        tasks = []
-        for pbi in pbis:
-            tasks.extend(Task.query.filter_by(pbi_id=pbi.id).all())
+        task_ids = [t.id for pbi in pbis for t in pbi.tasks]
 
-        total_effort = sum(t.estimated_effort or 0 for t in tasks)
+        # Sprint scope is the PBI effort, the same basis as capacity and velocity
+        total_effort = sum(p.effort or 0 for p in pbis)
         start_date = sprint.created_at.date()
         today = datetime.date.today()
         sprint_days = 14
@@ -504,12 +503,14 @@ class SprintBurndown(Resource):
             day = start_date + datetime.timedelta(days=i)
             if day > today:
                 break
-            days.append(day.strftime("Day %d" % (i + 1)))
+            days.append(f"Day {i + 1}")
             ideal.append(round(total_effort * (1 - i / (sprint_days - 1)), 2))
+            # Only effort logged inside the sprint window burns down its scope
             logged_so_far = db.session.query(
                 db.func.coalesce(db.func.sum(EffortLog.hours_spent), 0)
-            ).join(Task).filter(
-                Task.id.in_([t.id for t in tasks]),
+            ).filter(
+                EffortLog.task_id.in_(task_ids),
+                EffortLog.date >= start_date,
                 EffortLog.date <= day
             ).scalar()
             actual.append(round(max(total_effort - float(logged_so_far), 0), 2))

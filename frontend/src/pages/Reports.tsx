@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { isAxiosError } from 'axios'
+import { useAuth } from '../context/AuthContext'
 import Layout from '../components/Layout'
 import api from '../api/client'
 import {
@@ -30,23 +33,51 @@ export default function Reports() {
   const [burndown, setBurndown] = useState<BurndownData | null>(null)
   const [velocity, setVelocity] = useState<VelocityEntry[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const { state, dispatch } = useAuth()
+  const navigate = useNavigate()
+
+  const handleAuthError = (err: unknown) => {
+    const status = isAxiosError(err) ? err.response?.status : undefined
+    if (status === 401 || status === 422) {
+      dispatch({ type: 'LOGOUT' })
+      navigate('/login')
+      return true
+    }
+    return false
+  }
 
   useEffect(() => {
-    api.get('/sprints/').then(res => {
-      setSprints(res.data.sprints || res.data)
-    })
-    api.get('/velocity/sprints/velocity').then(res => {
-      setVelocity(res.data)
+    if (!state.isAuthenticated) { navigate('/login'); return }
+    Promise.all([
+      api.get('/sprints/?per_page=100'),
+      api.get('/velocity/sprints/velocity'),
+    ]).then(([sprintRes, velocityRes]) => {
+      setSprints(sprintRes.data.sprints)
+      setVelocity(velocityRes.data)
+    }).catch(err => {
+      if (!handleAuthError(err)) setError('Failed to load sprints')
     })
   }, [])
 
+  const selectSprint = (id: number | null) => {
+    setSelectedSprint(id)
+    setBurndown(null)
+    setError('')
+    setLoading(id !== null)
+  }
+
   useEffect(() => {
     if (!selectedSprint) return
-    setLoading(true)
-    api.get(`/burndown/sprints/${selectedSprint}/burndown`).then(res => {
-      setBurndown(res.data)
-      setLoading(false)
-    })
+    // Ignore a slow response if the user has already picked another sprint
+    let stale = false
+    api.get(`/burndown/sprints/${selectedSprint}/burndown`)
+      .then(res => { if (!stale) setBurndown(res.data) })
+      .catch(err => {
+        if (!stale && !handleAuthError(err)) setError('Failed to load burndown chart')
+      })
+      .finally(() => { if (!stale) setLoading(false) })
+    return () => { stale = true }
   }, [selectedSprint])
 
   const chartData = burndown
@@ -71,7 +102,8 @@ export default function Reports() {
             Select a sprint
           </label>
           <select
-            onChange={e => setSelectedSprint(Number(e.target.value))}
+            value={selectedSprint ?? ''}
+            onChange={e => selectSprint(e.target.value ? Number(e.target.value) : null)}
             style={{
               background: '#131720',
               color: '#f1f5f9',
@@ -91,8 +123,18 @@ export default function Reports() {
         </div>
 
         {/* Burndown chart */}
+        {error && (
+          <div style={{ background: 'rgba(239,68,68,0.1)', border: '0.5px solid rgba(239,68,68,0.3)', color: '#fca5a5', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '32px' }}>
+            {error}
+          </div>
+        )}
         {loading && <p style={{ color: '#94a3b8' }}>Loading chart...</p>}
-        {burndown && !loading && (
+        {burndown && !loading && burndown.days.length === 0 && (
+          <p style={{ color: '#94a3b8', marginBottom: '32px' }}>
+            Sprint #{selectedSprint} hasn't started yet, so there is nothing to chart.
+          </p>
+        )}
+        {burndown && !loading && burndown.days.length > 0 && (
           <div style={{
             background: '#131720',
             borderRadius: '12px',
@@ -163,6 +205,9 @@ export default function Reports() {
               </tbody>
             </table>
           </div>
+        )}
+        {velocity.length === 0 && !error && (
+          <p style={{ color: '#94a3b8' }}>No completed sprints yet — velocity appears once a sprint is completed.</p>
         )}
       </div>
     </Layout>
